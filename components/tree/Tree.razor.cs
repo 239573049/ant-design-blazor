@@ -6,7 +6,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
+using AntDesign.JsInterop;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 
@@ -14,6 +16,9 @@ namespace AntDesign
 {
     public partial class Tree<TItem> : AntDomComponentBase
     {
+        [CascadingParameter(Name = "IsTreeSelect")]
+        public bool IsTreeSelect { get; set; }
+
         #region fields
 
         /// <summary>
@@ -429,6 +434,9 @@ namespace AntDesign
         [Parameter]
         public string MatchedClass { get; set; }
 
+        [Parameter]
+        public bool HideUnmatched { get; set; }
+
         private void SearchNodes()
         {
             var allList = _allNodes.ToList();
@@ -448,12 +456,30 @@ namespace AntDesign
 
             if (exceptList?.Any() == true || searchDatas?.Any() == true)
             {
-                exceptList?.ForEach(m => { m.Expand(false); m.Matched = false; });
-                searchDatas?.ForEach(node => { node.OpenPropagation(); node.Matched = true; });
+                exceptList?.ForEach(m =>
+                {
+                    m.Expand(false);
+                    m.Matched = false;
+                    if (HideUnmatched)
+                        m.Hidden = true;
+                });
+
+                foreach (TreeNode<TItem> matchedNode in searchDatas)
+                {
+                    matchedNode.OpenPropagation(true);
+                    matchedNode.Matched = true;
+                }
             }
             else
             {
-                allList.ForEach(m => { m.Expand(false); m.Matched = false; });
+                var hide = HideUnmatched && !string.IsNullOrWhiteSpace(_searchValue);
+                var expand = DefaultExpandAll && string.IsNullOrWhiteSpace(_searchValue);
+                allList.ForEach(m =>
+                {
+                    m.Expand(expand);
+                    m.Matched = false;
+                    m.Hidden = hide;
+                });
             }
         }
 
@@ -654,6 +680,12 @@ namespace AntDesign
         }
 
         /// <summary>
+        /// Get TreeNode from Key
+        /// </summary>
+        /// <param name="key">Key</param>
+        public TreeNode<TItem> GetNode(string key) => _allNodes.FirstOrDefault(x => x.Key == key);
+
+        /// <summary>
         /// Find Node
         /// </summary>
         /// <param name="predicate">Predicate</param>
@@ -774,5 +806,50 @@ namespace AntDesign
         }
 
         #endregion Expand
+
+        [Inject]
+        private IDomEventListener DomEventListener { get; set; }
+
+        internal bool IsCtrlKeyDown { get; set; } = false;
+
+        protected override void OnAfterRender(bool firstRender)
+        {
+            if (firstRender)
+            {
+                if (IsTreeSelect)
+                {
+                    IsCtrlKeyDown = true;
+                }
+                else
+                {
+                    DomEventListener.AddShared<KeyboardEventArgs>("document", "keydown", OnKeyDown);
+                    DomEventListener.AddShared<KeyboardEventArgs>("document", "keyup", OnKeyUp);
+                }
+            }
+
+            base.OnAfterRender(firstRender);
+        }
+
+        protected virtual void OnKeyDown(KeyboardEventArgs eventArgs)
+        {
+            HanldeCtrlKeyPress(eventArgs);
+        }
+
+        protected virtual void OnKeyUp(KeyboardEventArgs eventArgs)
+        {
+            HanldeCtrlKeyPress(eventArgs);
+        }
+
+        private void HanldeCtrlKeyPress(KeyboardEventArgs eventArgs)
+        {
+            IsCtrlKeyDown = eventArgs.CtrlKey || eventArgs.MetaKey;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            DomEventListener?.Dispose();
+
+            base.Dispose(disposing);
+        }
     }
 }

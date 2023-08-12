@@ -110,10 +110,10 @@ namespace AntDesign
 
         /// <summary>
         /// Sets the height of the TextArea expressed in number of rows.
-        /// Default value is 3.
+        /// Default value is 2.
         /// </summary>
         [Parameter]
-        public uint Rows { get; set; } = 3;
+        public uint Rows { get; set; } = 2;
 
         /// <summary>
         /// Callback when the size changes
@@ -144,6 +144,8 @@ namespace AntDesign
 
         private ClassMapper _warpperClassMapper = new();
         private ClassMapper _textareaClassMapper = new();
+
+        private bool _afterFirstRender = false;
 
         protected override void OnInitialized()
         {
@@ -200,24 +202,32 @@ namespace AntDesign
         protected override async Task OnAfterRenderAsync(bool firstRender)
         {
             await base.OnAfterRenderAsync(firstRender);
-            if (AutoSize && _valueHasChanged)
+            if (firstRender)
             {
-                _valueHasChanged = false;
-                if (_isInputing)
-                {
-                    _isInputing = false;
-                }
-                else
-                {
-                    await JsInvokeAsync(JSInteropConstants.InputComponentHelper.ResizeTextArea, _textareaRef, InnerMinRows, MaxRows);
-                }
+                _afterFirstRender = true;
             }
-            if (_styleHasChanged)
+
+            if (_afterFirstRender)
             {
-                _styleHasChanged = false;
-                if (AutoSize && !string.IsNullOrWhiteSpace(Style))
+                if (AutoSize && _valueHasChanged)
                 {
-                    await JsInvokeAsync(JSInteropConstants.StyleHelper.SetStyle, _textareaRef, Style);
+                    _valueHasChanged = false;
+                    if (_isInputing)
+                    {
+                        _isInputing = false;
+                    }
+                    else if (_afterFirstRender)
+                    {
+                        await JsInvokeAsync(JSInteropConstants.InputComponentHelper.ResizeTextArea, Ref, InnerMinRows, MaxRows);
+                    }
+                }
+                if (_styleHasChanged)
+                {
+                    _styleHasChanged = false;
+                    if (AutoSize && !string.IsNullOrWhiteSpace(Style) && _afterFirstRender)
+                    {
+                        await JsInvokeAsync(JSInteropConstants.StyleHelper.SetStyle, Ref, Style);
+                    }
                 }
             }
         }
@@ -260,7 +270,7 @@ namespace AntDesign
 
                 _ = InvokeAsync(async () =>
                 {
-                    await JsInvokeAsync(JSInteropConstants.DisposeResizeTextArea, _textareaRef);
+                    await JsInvokeAsync(JSInteropConstants.DisposeResizeTextArea, Ref);
                 });
             }
 
@@ -278,8 +288,6 @@ namespace AntDesign
         private string _oldStyle;
         private bool _styleHasChanged;
         private string _heightStyle;
-
-        private ElementReference _textareaRef;
 
         private void Reloading(JsonElement jsonElement) => _isReloading = true;
 
@@ -300,12 +308,12 @@ namespace AntDesign
             if (AutoSize)
             {
                 await JsInvokeAsync<TextAreaInfo>(
-                    JSInteropConstants.InputComponentHelper.RegisterResizeTextArea, _textareaRef, InnerMinRows, MaxRows, _reference);
+                    JSInteropConstants.InputComponentHelper.RegisterResizeTextArea, Ref, InnerMinRows, MaxRows, _reference);
             }
             else
             {
                 var textAreaInfo = await JsInvokeAsync<TextAreaInfo>(
-                    JSInteropConstants.InputComponentHelper.GetTextAreaInfo, _textareaRef);
+                    JSInteropConstants.InputComponentHelper.GetTextAreaInfo, Ref);
 
                 var rowHeight = textAreaInfo.LineHeight;
                 var offsetHeight = textAreaInfo.PaddingTop + textAreaInfo.PaddingBottom

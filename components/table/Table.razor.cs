@@ -9,6 +9,15 @@ using AntDesign.JsInterop;
 using AntDesign.TableModels;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
+using System.Reflection;
+using AntDesign.Table.Internal;
+
+#if NET5_0_OR_GREATER
+
+using Microsoft.AspNetCore.Components.Web.Virtualization;
+
+#endif
 
 namespace AntDesign
 {
@@ -18,7 +27,7 @@ namespace AntDesign
 
     public partial class Table<TItem> : AntDomComponentBase, ITable, IAsyncDisposable
     {
-        private static readonly TItem _fieldModel = (TItem)RuntimeHelpers.GetUninitializedObject(typeof(TItem));
+        private static readonly TItem _fieldModel = typeof(TItem).IsInterface ? DispatchProxy.Create<TItem, TItemProxy>() : (TItem)RuntimeHelpers.GetUninitializedObject(typeof(TItem));
         private static readonly EventCallbackFactory _callbackFactory = new EventCallbackFactory();
 
         private bool _preventRender = false;
@@ -35,7 +44,7 @@ namespace AntDesign
             set
             {
                 _waitingDataSourceReload = true;
-                _dataSourceCount = value?.Count() ?? 0;
+                _dataSourceCount = value is IQueryable<TItem> ? 0 : value?.Count() ?? 0;
                 _dataSource = value ?? Enumerable.Empty<TItem>();
             }
         }
@@ -167,6 +176,7 @@ namespace AntDesign
         /// </summary>
         [Parameter]
         public bool EnableVirtualization { get; set; }
+
 #endif
 
         [Inject]
@@ -203,8 +213,24 @@ namespace AntDesign
 
         private decimal _tableWidth;
 
+        private bool _isVirtualizeEmpty;
+        private bool _afterFirstRender;
+
         private bool ServerSide => _hasRemoteDataSourceAttribute ? RemoteDataSource : Total > _dataSourceCount;
-        private bool UseResizeObserver => ScrollX != null;
+
+        private bool IsEntityFrameworkCore => _dataSource is IQueryable<TItem> query && query.Provider.ToString().Contains("EntityFrameworkCore");
+
+        private bool UseItemsProvider
+        {
+            get
+            {
+#if NET5_0_OR_GREATER
+                return EnableVirtualization && (ServerSide || IsEntityFrameworkCore);
+#else
+                return false;
+#endif
+            }
+        }
 
         bool ITable.TreeMode => _treeMode;
         int ITable.IndentSize => IndentSize;
@@ -329,7 +355,7 @@ namespace AntDesign
 
         private QueryModel<TItem> BuildQueryModel()
         {
-            var queryModel = new QueryModel<TItem>(PageIndex, PageSize);
+            var queryModel = new QueryModel<TItem>(PageIndex, PageSize, _startIndex);
 
             foreach (var col in ColumnContext.HeaderColumns)
             {
@@ -376,11 +402,28 @@ namespace AntDesign
 
         private void ReloadAndInvokeChange()
         {
+#if NET5_0_OR_GREATER
+            if (UseItemsProvider)
+            {
+                StateHasChanged();
+                return;
+            }
+#endif
+
             var queryModel = this.InternalReload();
             StateHasChanged();
             if (OnChange.HasDelegate)
             {
                 OnChange.InvokeAsync(queryModel);
+            }
+        }
+
+        private async Task ReloadAndInvokeChangeAsync()
+        {
+            var queryModel = this.InternalReload();
+            if (OnChange.HasDelegate)
+            {
+                await OnChange.InvokeAsync(queryModel);
             }
         }
 
@@ -457,6 +500,41 @@ namespace AntDesign
             return queryModel;
         }
 
+#if NET5_0_OR_GREATER
+        private async ValueTask<ItemsProviderResult<(TItem, int)>> ItemsProvider(ItemsProviderRequest request)
+        {
+            _startIndex = request.StartIndex;
+            if (_total > 0)
+            {
+                PageSize = Math.Min(request.Count, _total - _startIndex);
+            }
+            else
+            {
+                PageSize = request.Count;
+            }
+
+            IEnumerable<TItem> items = Array.Empty<TItem>();
+
+            if (_dataSource is IQueryable<TItem> query)
+            {
+                _total = query.Count();
+                items = query.Skip(_startIndex).Take(PageSize).ToArray();
+            }
+            else
+            {
+                await ReloadAndInvokeChangeAsync();
+                items = _dataSource;
+            }
+
+            if (_startIndex == 0 && _total == 0)
+            {
+                _isVirtualizeEmpty = true;
+            }
+
+            return new ItemsProviderResult<(TItem, int)>(items.Select((data, index) => (data, index)), _total);
+        }
+#endif
+
         private void SetClass()
         {
             string prefixCls = "ant-table";
@@ -497,6 +575,13 @@ namespace AntDesign
             {
                 TableLayout = "fixed";
             }
+
+#if NET5_0_OR_GREATER
+            if (UseItemsProvider)
+            {
+                HidePagination = true;
+            }
+#endif
 
             InitializePagination();
 
@@ -599,6 +684,7 @@ namespace AntDesign
 
             if (firstRender)
             {
+                _afterFirstRender = true;
                 DomEventListener.AddShared<JsonElement>("window", "beforeunload", Reloading);
 
                 if (ScrollY != null || ScrollX != null)
@@ -663,14 +749,15 @@ namespace AntDesign
         protected override void Dispose(bool disposing)
         {
             DomEventListener?.Dispose();
+
             base.Dispose(disposing);
         }
 
-        public async ValueTask DisposeAsync()
+        async ValueTask IAsyncDisposable.DisposeAsync()
         {
             try
             {
-                if (!_isReloading)
+                if (_afterFirstRender && !_isReloading)
                 {
                     if (ScrollY != null || ScrollX != null)
                     {
@@ -679,9 +766,12 @@ namespace AntDesign
                 }
                 DomEventListener?.Dispose();
             }
+#if NET6_0_OR_GREATER
+            catch (JSDisconnectedException) { }
+#endif
             catch (Exception ex)
             {
-                Logger.LogError("AntDesign: an exception was thrown at Table `DisposeAsync` method.", ex);
+                Logger.LogError(ex, "AntDesign: an exception was thrown at Table `DisposeAsync` method.");
             }
         }
 

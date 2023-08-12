@@ -25,8 +25,8 @@
             <div class="" style="max-height: @PopupContainerMaxHeight; overflow-y: auto;">
               <div>
                 <div class="" role="listbox" style="display: flex; flex-direction: column;">
-
-                  <Tree @ref="_tree"
+                  <CascadingValue Name="IsTreeSelect" Value="true" IsFixed="true">
+                    <Tree @ref="_tree"
                         TItem="TItem"
                         BlockNode
                         DataSource="DataSource"
@@ -51,17 +51,18 @@
                         MatchedStyle="@MatchedStyle"
                         MatchedClass="@MatchedClass"
                         SearchValue="@_searchValue"
-                  >
-                    <Nodes>
-                      @if (IsTemplatedNodes)
-                      {
-                        <CascadingValue Name="Tree" Value="_tree" IsFixed="true">
-                          @ChildContent
-                        </CascadingValue>
-                      }
-                    </Nodes>
-
-                  </Tree>
+                        OnNodeLoadDelayAsync="OnNodeLoadDelayAsync"
+                        @attributes="TreeAttributes">
+                      <Nodes>
+                        @if (IsTemplatedNodes)
+                        {
+                          <CascadingValue Name="Tree" Value="_tree" IsFixed="true">
+                            @ChildContent
+                          </CascadingValue>
+                        }
+                      </Nodes>
+                    </Tree>
+                  </CascadingValue>
                 </div>
               </div>
             </div>

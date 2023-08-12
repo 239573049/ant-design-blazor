@@ -82,10 +82,13 @@ namespace AntDesign.JsInterop
 
                 var dotNetObject = DotNetObjectReference.Create(new Invoker<string>((p) =>
                 {
+                    if (!_domEventSubscriptionsStore.ContainsKey(key))
+                        return;
+
                     for (var i = 0; i < _domEventSubscriptionsStore[key].Count; i++)
                     {
                         var subscription = _domEventSubscriptionsStore[key][i];
-                        object tP = JsonSerializer.Deserialize(p, subscription.Type);
+                        var tP = JsonSerializer.Deserialize(p, subscription.Type, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
                         subscription.Delegate.DynamicInvoke(tP);
                     }
                 }));
@@ -126,6 +129,8 @@ namespace AntDesign.JsInterop
                         var dotNetObject = _sharedDotNetObjectStore[key];
 
                         _jsRuntime.InvokeVoidAsync(JSInteropConstants.RemoveDomEventListener, key.Selector, key.EventName, dotNetObject);
+
+                        _domEventSubscriptionsStore.Remove(key, out var _);
                     }
                 }
                 else

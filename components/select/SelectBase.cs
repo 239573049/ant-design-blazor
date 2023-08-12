@@ -119,6 +119,8 @@ namespace AntDesign
         /// </summary>
         [Parameter] public EventCallback OnFocus { get; set; }
 
+        [Parameter] public bool AutoFocus { get; set; }
+
         /// <summary>
         /// The name of the property to be used as a group indicator.
         /// If the value is set, the entries are displayed in groups.
@@ -155,6 +157,11 @@ namespace AntDesign
         /// The custom prefix icon.
         /// </summary>
         [Parameter] public RenderFragment PrefixIcon { get; set; }
+
+        /// <summary>
+        /// The accesskey global attribute.
+        /// </summary>
+        [Parameter] public string AccessKey { get; set; }
 
         protected IEnumerable<TItemValue> _defaultValues;
         protected bool _defaultValuesHasItems;
@@ -247,29 +254,41 @@ namespace AntDesign
             get => _selectedValues;
             set
             {
-                if (value != null && _selectedValues != null)
+                if (value != null)
                 {
-                    var hasChanged = !value.SequenceEqual(_selectedValues);
-
-                    if (!hasChanged)
+                    if (_selectedValues != null)
                     {
+                        var hasChanged = !value.SequenceEqual(_selectedValues);
+
+                        if (!hasChanged)
+                        {
+                            return;
+                        }
+
+                        _selectedValues = value;
+                        _ = OnValuesChangeAsync(value);
+                    }
+                    else
+                    {
+                        _selectedValues = value;
+
+                        _ = OnValuesChangeAsync(value);
+                    }
+                }
+                else
+                {
+                    // value is null
+                    if (_selectedValues != null)
+                    {
+                        _selectedValues = null;
+
+                        _ = OnValuesChangeAsync(null);
+                    }
+                    else
+                    {
+                        // Don't notify that the field changed (as both values are null)
                         return;
                     }
-
-                    _selectedValues = value;
-                    _ = OnValuesChangeAsync(value);
-                }
-                else if (value != null && _selectedValues == null)
-                {
-                    _selectedValues = value;
-
-                    _ = OnValuesChangeAsync(value);
-                }
-                else if (value == null && _selectedValues != null)
-                {
-                    _selectedValues = default;
-
-                    _ = OnValuesChangeAsync(default);
                 }
 
                 if (_isNotifyFieldChanged && Form?.ValidateOnChange == true)
@@ -437,10 +456,10 @@ namespace AntDesign
                 return;
             }
 
-            if (!SelectOptionItems.Any())
-            {
-                return;
-            }
+            //if (!SelectOptionItems.Any())
+            //{
+            //    return;
+            //}
 
             if (values == null)
             {
@@ -451,6 +470,12 @@ namespace AntDesign
 
             EvaluateValuesChangedOutsideComponent(values);
 
+            if (ValuesChanged.HasDelegate)
+                await ValuesChanged.InvokeAsync(Values);
+
+            if (OnSelectedItemsChanged.HasDelegate)
+                await OnSelectedItemsChanged.InvokeAsync(SelectedOptionItems.Select(s => s.Item));
+
             if (_dropDown.IsOverlayShow())
             {
                 //A delay forces a refresh better than StateHasChanged().
@@ -460,12 +485,6 @@ namespace AntDesign
                 await Task.Delay(1);
                 await UpdateOverlayPositionAsync();
             }
-
-            if (ValuesChanged.HasDelegate)
-                await ValuesChanged.InvokeAsync(Values);
-
-            if (OnSelectedItemsChanged.HasDelegate)
-                await OnSelectedItemsChanged.InvokeAsync(SelectedOptionItems.Select(s => s.Item));
         }
 
         /// <summary>
@@ -625,6 +644,16 @@ namespace AntDesign
             _isInitialized = true;
 
             base.OnInitialized();
+        }
+
+        protected override async Task OnFirstAfterRenderAsync()
+        {
+            if (AutoFocus)
+            {
+                await SetInputFocusAsync();
+            }
+
+            await base.OnFirstAfterRenderAsync();
         }
 
         protected void OnOverlayHide()
